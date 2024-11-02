@@ -29,13 +29,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     match listener.accept() {
                         Ok((mut stream, _)) => {
                             let fd = stream.as_raw_fd();
-                            let token = Token(fd as usize);
+                            let client = Token(fd as usize);
                             poll.registry().register(
                                 &mut stream,
-                                token,
+                                client,
                                 Interest::READABLE | Interest::WRITABLE,
                             )?;
-                            sockets.insert(token, stream);
+                            sockets.insert(client, stream);
                             println!("Got a connection from: {}, fd: {}", address, fd);
                         }
                         Err(ref err) if would_block(err) => {
@@ -47,13 +47,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                     }
                 },
-                token => {
-                    let stream = sockets.get_mut(&token).unwrap();
+                client => {
+                    let stream = sockets.get_mut(&client).unwrap();
                     let mut buf = [0; 256];
                     match stream.read(&mut buf) {
                         Ok(0) => {
-                            sockets.remove(&token);
-                            println!("Connection closed: {:?}", token);
+                            sockets.remove(&client);
+                            println!("Connection closed fd: {:?}", client.0);
                         }
                         Ok(n) => {
                             println!("Received data: {:?}", str::from_utf8(&buf[..n])?);
@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                         Err(e) => {
                             eprintln!("Error reading from socket: {}", e);
-                            sockets.remove(&token);
+                            sockets.remove(&client);
                         }
                     }
                 }
