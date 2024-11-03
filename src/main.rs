@@ -1,76 +1,90 @@
 use core::str;
-use mio::net::TcpListener;
+use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 use std::collections::HashMap;
-use std::error::Error;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 
 const SERVER: Token = Token(0);
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut sockets = HashMap::new();
+struct Server {
+    sockets: HashMap<Token, TcpStream>,
+    poll: Poll,
+}
 
-    let mut poll = Poll::new()?;
-    let mut events = Events::with_capacity(128);
+impl Server {
+    fn new() -> std::io::Result<Self> {
+        Ok(Server {
+            sockets: HashMap::new(),
+            poll: Poll::new()?,
+        })
+    }
 
-    let address = "127.0.0.1:10000".parse()?;
-    let mut listener = TcpListener::bind(address)?;
+    fn handle_new_connections(&mut self, listener: &TcpListener) -> std::io::Result<()> {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let fd = stream.as_raw_fd();
+                let client = Token(fd as usize);
+                self.poll.registry().register(
+                    &mut stream,
+                    client,
+                    Interest::READABLE | Interest::WRITABLE,
+                )?;
+                self.sockets.insert(client, stream);
+                println!("Got a connection from: {}", fd);
+            }
+            Err(ref err) if would_block(err) => {}
+            Err(err) => {
+                eprintln!("Error accepting connection: {}", err);
+            }
+        }
+        Ok(())
+    }
 
-    poll.registry()
-        .register(&mut listener, SERVER, Interest::READABLE)?;
+    fn handle_user_event(&mut self, client: Token) -> std::io::Result<()> {
+        let stream = self.sockets.get_mut(&client).unwrap();
+        let mut buf = [0; 256];
+        match stream.read(&mut buf) {
+            Ok(0) => {
+                self.sockets.remove(&client);
+                println!("Connection closed fd: {:?}", client.0);
+            }
+            Ok(n) => {
+                println!("Received data: {:?}", &buf[0..n]);
+                stream.write_all(&buf)?;
+            }
+            Err(ref e) if would_block(e) => {}
+            Err(e) => {
+                eprintln!("Error reading from socket: {}", e);
+                self.sockets.remove(&client);
+            }
+        }
+        Ok(())
+    }
 
-    loop {
-        poll.poll(&mut events, None)?;
+    fn run(&mut self, addr: &str) -> std::io::Result<()> {
+        let mut listener = TcpListener::bind(addr.parse().expect("parse error"))?;
+        let mut events = Events::with_capacity(128);
+        self.poll
+            .registry()
+            .register(&mut listener, SERVER, Interest::READABLE)?;
 
-        for event in events.iter() {
-            match event.token() {
-                SERVER => loop {
-                    match listener.accept() {
-                        Ok((mut stream, _)) => {
-                            let fd = stream.as_raw_fd();
-                            let client = Token(fd as usize);
-                            poll.registry().register(
-                                &mut stream,
-                                client,
-                                Interest::READABLE | Interest::WRITABLE,
-                            )?;
-                            sockets.insert(client, stream);
-                            println!("Got a connection from: {}, fd: {}", address, fd);
-                        }
-                        Err(ref err) if would_block(err) => {
-                            break;
-                        }
-                        Err(err) => {
-                            eprintln!("Error accepting connection: {}", err);
-                            break;
-                        }
-                    }
-                },
-                client => {
-                    let stream = sockets.get_mut(&client).unwrap();
-                    let mut buf = [0; 256];
-                    match stream.read(&mut buf) {
-                        Ok(0) => {
-                            sockets.remove(&client);
-                            println!("Connection closed fd: {:?}", client.0);
-                        }
-                        Ok(n) => {
-                            println!("Received data: {:?}", str::from_utf8(&buf[..n])?);
-                            stream.write_all(&buf[..n])?;
-                        }
-                        Err(ref e) if would_block(e) => {
-                            break;
-                        }
-                        Err(e) => {
-                            eprintln!("Error reading from socket: {}", e);
-                            sockets.remove(&client);
-                        }
-                    }
+        loop {
+            self.poll.poll(&mut events, None)?;
+            for event in events.iter() {
+                match event.token() {
+                    SERVER => self.handle_new_connections(&listener)?,
+                    client => self.handle_user_event(client)?,
                 }
             }
         }
     }
+}
+
+fn main() -> std::io::Result<()> {
+    let mut server = Server::new()?;
+    server.run("127.0.0.1:10000")?;
+    Ok(())
 }
 
 fn would_block(err: &std::io::Error) -> bool {
