@@ -114,6 +114,14 @@ impl Server {
         Ok(())
     }
 
+    fn deregister(&mut self, user: Rc<RefCell<User>>) -> std::io::Result<()> {
+        println!("{:?}", user);
+        self.poll
+            .registry()
+            .deregister(&mut user.borrow_mut().stream)?;
+        Ok(())
+    }
+
     fn handle_new_connections(&mut self, listener: &TcpListener) -> std::io::Result<()> {
         match listener.accept() {
             Ok((stream, _)) => {
@@ -124,7 +132,7 @@ impl Server {
                 self.register_rw(user.clone(), token)?;
                 user.borrow_mut()
                     .push_message("Please enter your name: ".into());
-                self.sockets.clone().borrow_mut().insert(token, user);
+                self.sockets.borrow_mut().insert(token, user);
 
                 println!("Got a connection from: {}", fd);
             }
@@ -138,7 +146,10 @@ impl Server {
 
     fn handle_user_event(&mut self, token: Token, event: &Event) -> std::io::Result<()> {
         if event.is_read_closed() {
-            self.sockets.clone().borrow_mut().remove(&token);
+            if let Some(user) = self.sockets.clone().borrow().get(&token) {
+                self.deregister(user.clone())?;
+            }
+            self.sockets.borrow_mut().remove(&token);
             println!("Connection closed fd: {:?}", token.0);
             return Ok(());
         }
@@ -146,12 +157,6 @@ impl Server {
         if event.is_readable() {
             if let Some(user) = self.sockets.clone().borrow().get(&token) {
                 let msg = user.borrow_mut().read()?;
-
-                if msg.is_none() {
-                    user.borrow_mut()
-                        .push_message("Welcome, you can start sending messages.\n".into());
-                    self.reregister_rw(user.clone(), token)?;
-                }
 
                 if let Some(message) = msg {
                     println!("Received data: {:?}", message);
@@ -161,12 +166,16 @@ impl Server {
                         message
                     );
                     self.broadcast(message, token)?;
+                } else {
+                    user.borrow_mut()
+                        .push_message("Welcome, you can start sending messages.\n".into());
+                    self.reregister_rw(user.clone(), token)?;
                 }
             }
         }
 
         if event.is_writable() {
-            if let Some(user) = self.sockets.clone().borrow_mut().get_mut(&token) {
+            if let Some(user) = self.sockets.borrow_mut().get_mut(&token) {
                 user.borrow_mut().write()?;
             }
         }
