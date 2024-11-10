@@ -58,7 +58,7 @@ impl User {
         };
 
         if self.name.is_none() {
-            self.name = Some(data.to_string());
+            self.name = Some(data.trim().into());
             println!("User connected with name: {:?}", self.name);
             Ok(None)
         } else {
@@ -93,7 +93,7 @@ impl Server {
     }
 
     fn reregister_rw(&mut self, user: Rc<RefCell<User>>, token: Token) -> std::io::Result<()> {
-        println!("{:?}", user.clone().borrow());
+        println!("{:?}", user);
         self.poll.registry().reregister(
             &mut user.borrow_mut().stream,
             token,
@@ -104,7 +104,7 @@ impl Server {
     }
 
     fn register_rw(&mut self, user: Rc<RefCell<User>>, token: Token) -> std::io::Result<()> {
-        println!("{:?}", user.clone().borrow());
+        println!("{:?}", user);
         self.poll.registry().register(
             &mut user.borrow_mut().stream,
             token,
