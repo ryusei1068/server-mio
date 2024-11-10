@@ -136,21 +136,21 @@ impl Server {
         Ok(())
     }
 
-    fn handle_user_event(&mut self, client: Token, event: &Event) -> std::io::Result<()> {
+    fn handle_user_event(&mut self, token: Token, event: &Event) -> std::io::Result<()> {
         if event.is_read_closed() {
-            self.sockets.clone().borrow_mut().remove(&client);
-            println!("Connection closed fd: {:?}", client.0);
+            self.sockets.clone().borrow_mut().remove(&token);
+            println!("Connection closed fd: {:?}", token.0);
             return Ok(());
         }
 
         if event.is_readable() {
-            if let Some(user) = self.sockets.clone().borrow().get(&client) {
+            if let Some(user) = self.sockets.clone().borrow().get(&token) {
                 let msg = user.borrow_mut().read()?;
 
                 if msg.is_none() {
                     user.borrow_mut()
                         .push_message("Welcome, you can start sending messages.\n".into());
-                    self.reregister_rw(user.clone(), client)?;
+                    self.reregister_rw(user.clone(), token)?;
                 }
 
                 if let Some(message) = msg {
@@ -160,13 +160,13 @@ impl Server {
                         user.borrow().name.clone().unwrap_or("Anonymous".into()),
                         message
                     );
-                    self.broadcast(message, client)?;
+                    self.broadcast(message, token)?;
                 }
             }
         }
 
         if event.is_writable() {
-            if let Some(user) = self.sockets.clone().borrow_mut().get_mut(&client) {
+            if let Some(user) = self.sockets.clone().borrow_mut().get_mut(&token) {
                 user.borrow_mut().write()?;
             }
         }
@@ -185,7 +185,7 @@ impl Server {
             for event in events.iter() {
                 match event.token() {
                     SERVER => self.handle_new_connections(&listener)?,
-                    client => self.handle_user_event(client, event)?,
+                    token => self.handle_user_event(token, event)?,
                 }
             }
         }
