@@ -148,6 +148,12 @@ impl Server {
         if event.is_read_closed() {
             if let Some(user) = self.sockets.clone().borrow().get(&token) {
                 self.deregister(user.clone())?;
+                let message = format!(
+                    "{} {}",
+                    user.borrow().name.clone().unwrap_or("Anonymous".into()),
+                    "leaved this room."
+                );
+                self.broadcast(message, token)?;
             }
             self.sockets.borrow_mut().remove(&token);
             println!("Connection closed fd: {:?}", token.0);
