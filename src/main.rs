@@ -157,7 +157,7 @@ impl Server {
                     println!("Received data: {:?}", message);
                     let message = format!(
                         "{}: {}",
-                        user.borrow().name.clone().unwrap_or_default(),
+                        user.borrow().name.clone().unwrap_or("Anonymous".into()),
                         message
                     );
                     self.broadcast(message, client)?;
